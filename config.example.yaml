@@ -1,0 +1,43 @@
+# 이 파일을 config.yaml 로 복사해서 값을 채우세요. config.yaml 은 git 에 올라가지 않습니다.
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  base_url: http://my-mac.tail1234.ts.net:8000   # Gmail 알림 속 발행 도우미 링크 (Tailscale 주소)
+
+# Cloudflare Tunnel 등 공개 URL 로 열면 필수. 첫 접속만 ?token=값 → 쿠키로 유지. Tailscale 전용이면 비워둠.
+auth_token: ""
+
+gemini:
+  api_key: ""
+  model: gemini-2.5-flash    # AI Studio 에서 현재 무료 Flash 모델명 확인 후 수정
+  max_retries: 5             # 429·5xx 지수 백오프(2,4,8,16,32초)
+
+naver:                       # developers.naver.com 애플리케이션: 검색 + 데이터랩(검색어트렌드)
+  client_id: ""
+  client_secret: ""
+  blog_id: ""                # blog.naver.com/{blog_id} — RSS 발행 확인·순위 추적용
+
+searchad:                    # searchad.naver.com > 도구 > API 사용 관리
+  api_key: ""                # 액세스라이선스
+  secret_key: ""             # 비밀키
+  customer_id: ""            # CUSTOMER_ID
+
+keyword:
+  min_volume: 500            # 메인 키워드 월간 검색량 구간 (블로그 지수에 맞게 조정)
+  max_volume: 5000           # D+7 순위가 4편 이상 쌓이면 상한 자동 보정
+
+gmail:
+  user: ""                   # 보내는 Gmail 주소
+  app_password: ""           # 2단계 인증 후 발급한 앱 비밀번호 16자리
+  to: ""                     # 받는 주소 (비우면 user)
+  attach_clip: true          # 편집 클립(20MB 미만)만 첨부
+
+schedule:                    # crontab 형식 (분 시 일 월 요일)
+  timezone: Asia/Seoul
+  generate: "0 21 * * mon,wed"
+  track: "0 10 * * *"
+
+media:
+  blur_faces: false          # true 면 pip install opencv-python-headless 필요
+  clip_font: Apple SD Gothic Neo   # 클립 자막 한글 폰트 (Linux 면 NanumGothic 등)

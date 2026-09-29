@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>방문 경험 입력</title>
+<style>
+body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0 auto;max-width:640px;padding:16px;background:#fafafa;color:#222}
+fieldset{border:1px solid #ddd;border-radius:10px;margin:0 0 12px;padding:8px 12px 12px;background:#fff}
+label{display:block;margin:10px 0 4px;font-weight:600}
+.opt label,.guide label{display:flex;gap:6px;align-items:center;font-weight:400;margin:4px 0}
+input[type=date],textarea,select{width:100%;box-sizing:border-box;font:inherit;padding:8px;border:1px solid #ccc;border-radius:6px}
+textarea{min-height:56px}
+button{width:100%;padding:14px;font:inherit;font-weight:700;background:#03c75a;color:#fff;border:0;border-radius:10px}
+button:disabled{opacity:.5}
+.hint{color:#666;font-size:14px}
+#list div{padding:6px 0;border-bottom:1px solid #eee}
+</style>
+</head>
+<body>
+<h2>방문 경험 입력</h2>
+<form id="f">
+  <fieldset>
+    <label>카테고리</label><div class="opt" id="cats"></div>
+    <div class="guide" id="guide"></div>
+  </fieldset>
+  <fieldset>
+    <label>방문일</label><input type="date" name="visit_date" required>
+    <label>네이버 지도 URL</label>
+    <div class="hint">지도 앱 공유 텍스트를 그대로 붙여넣어도 됩니다. 여행은 장소마다 이어서 붙여넣기.</div>
+    <textarea name="urls" required></textarea>
+    <label>대가성</label><select name="sponsorship" id="sponsor"></select>
+  </fieldset>
+  <fieldset>
+    <label>사진</label>
+    <div class="hint">서버엔 분석용 축소본만 올라갑니다. 원본은 폰에 두고 발행할 때 직접 업로드하세요.</div>
+    <input type="file" id="photos" accept="image/*" multiple required>
+    <label>짧은 영상 2~4개 (선택)</label><input type="file" id="videos" accept="video/*" multiple>
+  </fieldset>
+  <fieldset id="qs"><label>경험 인터뷰 (각 1~2문장, 키보드 마이크로 받아쓰기 가능)</label></fieldset>
+  <fieldset class="opt">
+    <label>발송</label>
+    <label><input type="radio" name="mode" value="큐" checked> 큐 (월·수 21시 생성 → 화·목 발행)</label>
+    <label><input type="radio" name="mode" value="즉시"> 즉시 생성</label>
+  </fieldset>
+  <button id="go">제출</button>
+  <p id="msg" class="hint"></p>
+</form>
+<h3>최근 글</h3>
+<div id="list"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let T;
+const cat = () => (document.querySelector('input[name=category]:checked') || {}).value;
+const msg = t => $('#msg').textContent = t;
+
+function el(tag, props = {}, ...kids) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...kids.filter(k => k != null));
+  return e;
+}
+
+function showGuide() {
+  const g = T.categories[cat()];
+  $('#guide').replaceChildren(
+    el('label', {}, `촬영 가이드: ${g.photos} + ${g.video}`),
+    ...g.shots.map(s => el('label', {}, el('input', {type: 'checkbox', value: s}), s)));
+}
+
+function shrink(file) {  // 긴 변 1024px JPEG, 방향은 브라우저가 EXIF 대로 적용
+  return new Promise(ok => {
+    const img = new Image();
+    img.onload = () => {
+      const r = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = el('canvas', {width: Math.round(img.naturalWidth * r), height: Math.round(img.naturalHeight * r)});
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      c.toBlob(b => ok(b || file), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => ok(file);  // 브라우저가 못 여는 형식(HEIC 등)은 원본 전송 → 서버에서 변환
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+async function load() {
+  const rows = await (await fetch('/api/posts')).json();
+  $('#list').replaceChildren(...rows.map(p => el('div', {},
+    el('a', {href: `/post/${p.id}`}, `#${p.id} [${p.category}] ${p.title || '(수집 중)'}`),
+    ` · ${p.status}${p.score != null ? ` · SEO ${p.score}점` : ''}${p.error ? ` · ${p.error}` : ''}`)));
+}
+
+fetch('/api/templates').then(r => r.json()).then(t => {
+  T = t;
+  $('#cats').append(...Object.keys(t.categories).map((c, i) =>
+    el('label', {}, el('input', {type: 'radio', name: 'category', value: c, checked: !i, defaultChecked: !i, onchange: showGuide}), c)));
+  $('#sponsor').append(...t.sponsorship.map(s => el('option', {}, s)));
+  t.interview.forEach((q, i) => $('#qs').append(el('label', {}, `${i + 1}. ${q}`), el('textarea', {name: `q${i + 1}`})));
+  $('#qs').append(el('label', {}, '음성 메모 / 자유 메모 (선택)'), el('textarea', {name: 'memo'}));
+  $('[name=visit_date]').valueAsDate = new Date();
+  showGuide();
+  load();
+});
+
+$('#f').onsubmit = async e => {
+  e.preventDefault();
+  const g = T.categories[cat()], ph = [...$('#photos').files];
+  const miss = [...document.querySelectorAll('#guide input:not(:checked)')].map(x => x.value);
+  const warn = [];
+  if (ph.length < g.min_photos) warn.push(`사진 ${ph.length}장 — 권장 ${g.min_photos}장 이상 (다음엔 현장에서 더 찍기)`);
+  if (miss.length) warn.push('누락 샷: ' + miss.join(', '));
+  if (warn.length && !confirm(warn.join('\n') + '\n\n그래도 제출할까요?')) return;
+  $('#go').disabled = true;
+  try {
+    const fd = new FormData($('#f'));
+    msg('사진 줄이는 중…');
+    for (const f of ph) fd.append('photos', await shrink(f), f.name.replace(/\.\w+$/, '.jpg'));
+    for (const f of $('#videos').files) fd.append('videos', f, f.name);
+    msg('업로드 중…');
+    const r = await fetch('/api/posts', {method: 'POST', body: fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || JSON.stringify(j));
+    msg(`접수됨 #${j.id} — 사실·키워드 수집 중`);
+    $('#f').reset(); $('[name=visit_date]').valueAsDate = new Date(); showGuide(); load();
+  } catch (err) {
+    msg('실패: ' + err.message);
+  } finally {
+    $('#go').disabled = false;
+  }
+};
+</script>
+</body>
+</html>

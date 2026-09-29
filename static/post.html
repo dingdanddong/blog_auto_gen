@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>발행 도우미</title>
+<style>
+body{font:16px/1.6 -apple-system,system-ui,sans-serif;margin:0 auto;max-width:720px;padding:16px;background:#fafafa;color:#222}
+section{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px;margin:0 0 12px}
+h2,h3{margin:.2em 0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+button{font:inherit;font-size:14px;padding:6px 12px;border:1px solid #03c75a;background:#fff;color:#03a14a;border-radius:6px;white-space:nowrap}
+.tag{font-size:12px;background:#e8f7ee;color:#03a14a;padding:1px 6px;border-radius:4px}
+.box{white-space:pre-wrap}
+.mark{display:flex;gap:8px;align-items:center;background:#f3f6ff;border-radius:8px;padding:6px;margin:6px 0;font-size:14px}
+.mark img{width:72px;height:72px;object-fit:cover;border-radius:6px}
+table{border-collapse:collapse;width:100%}
+td,th{border:1px solid #ccc;padding:4px 8px;text-align:left;vertical-align:top}
+.bad{color:#c62828}.ok{color:#2e7d32}.warn{color:#b26a00}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.photos figure{margin:0;font-size:12px}.photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:8px 16px;border-radius:20px;display:none}
+</style>
+</head>
+<body>
+<p><a href="/">← 입력</a></p>
+<div id="app">불러오는 중…</div>
+<div id="toast">복사됨</div>
+
+<script>
+const id = location.pathname.split('/').pop();
+const PHOTO = /\[사진\s*(\d+)\s*:([^|\]]*)\|?([^\]]*)\]/, MAP = /\[지도:\s*([^\]]*)\]/, CLIP = /\[클립\]/;
+
+function el(tag, props = {}, ...kids) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...kids.flat().filter(k => k != null));
+  return e;
+}
+function toast() { const t = document.getElementById('toast'); t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 900); }
+// http(Tailscale) 에서는 clipboard API 가 막혀 있어 선택+execCommand 로 복사 (표는 서식째 복사됨)
+function copyNode(node) {
+  const r = document.createRange(); r.selectNodeContents(node);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  document.execCommand('copy'); s.removeAllRanges(); toast();
+}
+function copyText(text) {
+  const ta = el('textarea', {value: text}); document.body.append(ta); ta.select();
+  document.execCommand('copy'); ta.remove(); toast();
+}
+const btn = (label, fn) => el('button', {onclick: fn}, label);
+// 복사용 텍스트: 마커는 짧은 자리표시로
+const plain = p => p.replace(PHOTO, '📷 사진$1').replace(MAP, '📍 지도: $1').replace(CLIP, '🎬 클립');
+
+fetch(`/api/posts/${id}`).then(r => r.json()).then(p => {
+  const app = document.getElementById('app');
+  const f = p.final;
+  if (!f) {
+    app.replaceChildren(el('section', {}, el('h3', {}, `#${p.id} · ${p.status}`), el('p', {}, p.error || '아직 생성 전입니다.'),
+      p.keywords ? el('p', {}, `메인 키워드: ${p.keywords.main} / 서브: ${p.keywords.subs.join(', ')}`) : null));
+    return;
+  }
+  const photoOf = no => p.photos.find(x => x.no == no);
+  const markView = para => {
+    let m;
+    if ((m = para.match(PHOTO))) {
+      const ph = photoOf(+m[1]);
+      return el('div', {className: 'mark'}, ph ? el('img', {src: `/files/${p.id}/photos/${ph.file}`}) : null,
+        el('span', {}, `📷 사진 ${m[1]} 삽입 — ${m[2].trim()}`, el('br'), `캡션: ${m[3].trim()}`));
+    }
+    if ((m = para.match(MAP))) return el('div', {className: 'mark'}, `📍 네이버 지도 삽입: ${m[1]}`);
+    if (CLIP.test(para)) return el('div', {className: 'mark'}, '🎬 클립 삽입 (아래 다운로드)');
+    return el('p', {className: 'box'}, para);
+  };
+  const isMark = para => /^\s*\[(사진|지도|클립)[^\]]*\]\s*$/.test(para);
+  const r = p.report;
+
+  const intro = [f.disclosure, ...f.summary].filter(Boolean).join('\n');
+  const table = el('table', {}, f.table.map((row, i) => el('tr', {}, row.map(c => el(i ? 'td' : 'th', {}, c)))));
+  const photos = [...f.sections.flatMap(s => s.paragraphs).join('\n').matchAll(new RegExp(PHOTO, 'g'))];
+  const maps = [...f.sections.flatMap(s => s.paragraphs).join('\n').matchAll(new RegExp(MAP, 'g'))].map(m => m[1]);
+  const tags = f.hashtags.join(' ');
+
+  app.replaceChildren(
+    el('section', {},
+      el('div', {className: 'row'}, el('h2', {}, f.title), btn('제목 복사', () => copyText(f.title))),
+      el('div', {}, `SEO ${r.score}점 · 메인 `, el('b', {}, p.keywords.main), ` · 서브 ${p.keywords.subs.join(', ')}`),
+      el('ul', {}, r.checks.map(c => el('li', {className: c.ok ? 'ok' : 'bad'}, `${c.ok ? '✅' : '❌'} [${c.item}] ${c.msg}`))),
+      p.warnings.length ? el('ul', {}, p.warnings.map(w => el('li', {className: 'warn'}, `⚠️ ${w}`))) : null),
+
+    el('section', {},
+      el('h3', {}, '발행 전 3분 체크'),
+      el('ul', {}, ['사실 오류 없나', '내 말투인가', '한 문장이라도 직접 덧붙이기', '사진 순서 (폰 앨범 원본으로 업로드)', '지도 삽입', '대가성 고지 문구']
+        .map(x => el('li', {}, el('label', {}, el('input', {type: 'checkbox'}), ' ' + x))))),
+
+    el('section', {},
+      el('div', {className: 'row'}, el('h3', {}, '도입 (고지 + 두괄식 요약)'), btn('복사', () => copyText(intro))),
+      el('p', {className: 'box'}, intro)),
+
+    ...f.sections.map(s => el('section', {},
+      el('div', {className: 'row'}, el('h3', {}, s.heading, ' ', el('span', {className: 'tag'}, '소제목')),
+        el('span', {}, btn('소제목', () => copyText(s.heading)), ' ', btn('본문', () => copyText(s.paragraphs.map(plain).join('\n\n'))))),
+      s.paragraphs.map(para => isMark(para) ? markView(para) : el('p', {className: 'box'}, para)))),
+
+    el('section', {},
+      el('div', {className: 'row'}, el('h3', {}, '한눈에 보기 표'), btn('표 복사', () => copyNode(table))),
+      el('p', {className: 'hint'}, '붙여넣기로 표가 안 되면 스마트에디터 표 컴포넌트로 입력하세요.'), table),
+
+    el('section', {},
+      el('h3', {}, '사진 순서 · 캡션 (폰 앨범 원본으로 업로드)'),
+      el('div', {className: 'photos'}, photos.map(m => {
+        const ph = photoOf(+m[1]);
+        return el('figure', {}, ph ? el('img', {src: `/files/${p.id}/photos/${ph.file}`}) : null,
+          el('figcaption', {}, `${m[1]}. ${m[3].trim()} `, btn('캡션', () => copyText(m[3].trim()))));
+      }))),
+
+    el('section', {},
+      el('h3', {}, '지도 · 클립'),
+      el('ul', {}, maps.map(m => el('li', {}, `📍 ${m} `, btn('장소명', () => copyText(m))))),
+      p.clip ? el('p', {}, el('a', {href: `/files/${p.id}/clip.mp4`, download: 'clip.mp4'}, `🎬 클립 다운로드 (${Math.round(p.clip)}초)`)) : null),
+
+    el('section', {},
+      el('div', {className: 'row'}, el('h3', {}, '해시태그'), btn('복사', () => copyText(tags))),
+      el('p', {}, tags)),
+
+    p.related.length ? el('section', {},
+      el('div', {className: 'row'}, el('h3', {}, '함께 보면 좋은 글 (내부 링크)'),
+        btn('복사', () => copyText(p.related.map(x => `${x.title}\n${x.url}`).join('\n\n')))),
+      el('ul', {}, p.related.map(x => el('li', {}, el('a', {href: x.url, target: '_blank'}, `[${x.category}] ${x.title}`))))) : null,
+
+    el('section', {},
+      el('h3', {}, '키워드 기획'),
+      p.keywords.rows.length ? el('table', {},
+        el('tr', {}, ['키워드', '월 검색량', '30일 발행량', '포화지수', '경쟁도'].map(h => el('th', {}, h))),
+        p.keywords.rows.map(k => el('tr', {}, [k.keyword, k.volume, k.posts, k.saturation + '%', k.comp].map(v => el('td', {}, String(v)))))) : null,
+      p.keywords.season_boost ? el('p', {}, '📈 성수기 직전 키워드') : null,
+      p.ranks ? el('p', {}, `순위(블로그 검색): ` + Object.entries(p.ranks).map(([d, r]) => `D+${d} ${r ?? '100위 밖'}`).join(' · ')) : null),
+  );
+}).catch(e => document.getElementById('app').textContent = '불러오기 실패: ' + e);
+</script>
+</body>
+</html>

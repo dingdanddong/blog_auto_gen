@@ -1,0 +1,70 @@
+네이버 블로그 AI 에이전트 — 직접 해야 하는 설정
+================================================
+
+[1] 실행 환경
+- Python: 이 Mac 에는 3.9.6 만 있어서 3.9 호환으로 작성함 (계획서는 3.11+ 권장, 올려도 그대로 동작)
+    python3 -m venv .venv
+    .venv/bin/pip install -r requirements.txt
+- FFmpeg (클립 편집용): 현재 미설치. Homebrew 설치 후  brew install ffmpeg
+  없으면 클립만 건너뛰고 나머지는 동작 (도우미 페이지에 경고 표시)
+- cp config.example.yaml config.yaml  → 아래 [2]의 키 채우기
+
+[2] API 키 (모두 무료)
+a. Gemini — https://aistudio.google.com → Get API key → gemini.api_key
+   - gemini.model: AI Studio 에서 현재 무료 Flash 모델명·한도 확인 후 수정 (기본값 gemini-2.5-flash)
+   - 무료 티어 입력은 서비스 개선에 쓰일 수 있음 → 사진에 타인 얼굴이 많으면
+     media.blur_faces: true  +  .venv/bin/pip install opencv-python-headless
+b. 네이버 개발자센터 — https://developers.naver.com → Application 등록
+   - 사용 API: "검색" 과 "데이터랩(검색어트렌드)" 둘 다 추가
+   - 비로그인 오픈 API 서비스 환경: WEB, URL 은 http://localhost 로 충분
+   - Client ID / Secret → naver.client_id / naver.client_secret
+   - naver.blog_id = blog.naver.com/ 뒤의 아이디 (RSS 발행 확인·순위 추적)
+c. 네이버 검색광고 — https://searchad.naver.com 가입 (광고비 결제 불필요)
+   → 도구 > API 사용 관리 → 네이버 검색광고 API 서비스 신청
+   - 액세스라이선스 → searchad.api_key, 비밀키 → searchad.secret_key, CUSTOMER_ID → searchad.customer_id
+   - 미설정이면 키워드는 기본 패턴(역·동 + 메뉴 + 맛집)으로만 정해짐 (검색량·포화지수 없음)
+d. Gmail — 구글 계정 2단계 인증 켜기 → https://myaccount.google.com/apppasswords 에서 앱 비밀번호 발급
+   → gmail.user / gmail.app_password (받는 주소가 다르면 gmail.to)
+
+[3] 문체 프로필 (최초 1회)
+- 본인 블로그 글 10편을 data/my_posts/01.txt … 10.txt 로 저장 (본문 텍스트만 복사)
+- .venv/bin/python main.py style  → data/style_profile.json 생성 (규칙 + 본인 글 발췌 2개)
+  내용을 읽어보고 어색하면 직접 고쳐도 됨
+- 이 글들은 자기 유사도 검사(도입·맺음 중복, 5-gram)의 비교 대상으로도 쓰임
+
+[4] 서버 · 아이폰 접속
+- Tailscale 을 Mac 과 아이폰에 설치해 같은 계정으로 로그인 → Mac 의 Tailscale 주소를 server.base_url 에
+- 실행:  .venv/bin/python main.py serve
+- 아이폰 Safari 로 base_url 접속 → 공유 → "홈 화면에 추가" (PWA)
+- Cloudflare Tunnel 등 공개 URL 로 열 경우 auth_token 반드시 설정, 첫 접속만 https://주소/?token=값
+- 스케줄(월·수 21:00 생성, 매일 10:00 발행 확인·순위 추적)은 서버가 켜져 있어야 돈다
+  - Mac 잠자기 방지:  caffeinate -s .venv/bin/python main.py serve
+    또는 시스템 설정 > 배터리/에너지 > 잠자기 방지 옵션
+  - 재부팅 후 자동 실행이 필요하면 launchd 등록 필요 (원하면 말해주세요)
+
+[5] iOS 단축어 (여행 글 동선 정렬용, 선택)
+Safari 업로드는 사진의 촬영 시각·위치가 빠질 수 있어서, 여행 글은 단축어로 보내면 촬영 시각 순 동선 정렬이 된다.
+  1) "사진 선택" (여러 장 허용)
+  2) "반복(각 항목)": "이미지 세부사항 가져오기"로 촬영 날짜·위치(위도·경도)
+     → 사전 {"taken_at": 날짜(ISO 8601 형식), "lat": 위도, "lon": 경도} → 목록 변수 meta 에 추가
+  3) "URL 의 콘텐츠 가져오기": POST {base_url}/api/posts, 요청 본문 = 양식
+       category=여행, visit_date=YYYY-MM-DD, urls=지도 공유 텍스트(장소마다 이어서),
+       sponsorship=내돈내산|협찬|광고, mode=큐|즉시,
+       q1~q5=인터뷰 답(“입력 요청” + 받아쓰기), memo=(선택),
+       photo_meta=meta 를 JSON 텍스트로, photos=선택한 사진(파일, 여러 개), videos=(선택)
+  auth_token 을 쓰면 URL 끝에 ?token=값
+  단축어로 원본을 보내면 서버가 EXIF 에서 촬영 시각·GPS 를 직접 읽기도 함 (photo_meta 가 우선)
+
+[6] 네이버 블로그 쪽 수동 설정
+- 블로그 주제와 글별 주제를 맛집 / 국내여행 으로 일관되게 지정
+- 주력 생활권(지역)을 정해 그 지역 위주로 발행 → 같은 지역 글끼리 내부 링크 제안이 쌓임
+- 발행은 사람이: 도우미 페이지(/post/번호)에서 섹션 복사 → 스마트에디터 앱에서 폰 앨범 원본 사진 업로드 → 발행
+  (자동 로그인·자동 발행은 7대 금기에 해당해 만들지 않음)
+- 발행 후 제목을 크게 바꾸면 RSS 자동 연결이 안 될 수 있음 (제목 유사도 0.6 이상 또는 메인 키워드 포함으로 매칭)
+
+[7] 검증 상태
+- .venv/bin/python test_core.py  → 검사 로직·정규식·동선 정렬 자가 점검 (키 불필요)
+- 실제로 확인한 것: 플레이스 수집(명동교자 본점 실데이터), Gemini 를 스텁으로 바꾼 입력→생성→도우미 페이지 전체 흐름,
+  FFmpeg 클립(임시 바이너리로 해상도·오디오 혼합·한글 자막)
+- 키가 없어 실제 호출을 못 해본 것: Gemini, 검색광고 API, 검색 API(발행량·순위), 데이터랩, RSS, Gmail
+  → 키를 넣고 한 건을 "즉시" 모드로 돌려본 뒤 결과나 에러를 알려주세요
