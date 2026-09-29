@@ -1,0 +1,1 @@
+# blog_auto_gen
